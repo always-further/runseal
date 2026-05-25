@@ -15,18 +15,18 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: GitHub token is injected only for allowed API route
+      - name: GitHub PAT is injected only for allowed API route
         uses: always-further/runseal@main
         env:
-          RUNSEAL_GITHUB_TOKEN: ${{ github.token }}
+          RUNSEAL_GITHUB_PAT: ${{ secrets.RUNSEAL_GITHUB_PAT }}
         with:
           run: |
-            test -z "$RUNSEAL_GITHUB_TOKEN"
+            test -z "$RUNSEAL_GITHUB_PAT"
             curl -fsS \
               -H "Authorization: Bearer ${RUNSEAL_CRED_cred_0}" \
               -H "Accept: application/vnd.github+json" \
-              "${CRED_0_BASE_URL}/repos/${GITHUB_REPOSITORY}"
-            printf "github token injected ok\n"
+              "${CRED_0_BASE_URL}/user" >/tmp/runseal-github-user.json
+            printf "github PAT injected ok\n"
           runseal-version: source
           verify-attestations: false
           policy: |
@@ -36,10 +36,10 @@ jobs:
             network:
               default: blocked
             credentials:
-              RUNSEAL_GITHUB_TOKEN:
+              RUNSEAL_GITHUB_PAT:
                 host: api.github.com
                 inject:
                   mode: header
                 endpoints:
                   - method: GET
-                    path: "/repos/${{ github.repository }}"
+                    path: "/user"
