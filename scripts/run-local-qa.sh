@@ -206,9 +206,9 @@ require_cmd nono
 require_cmd openssl
 require_cmd python3
 
-if ! grep -q 'tls_ca' "${ROOT}/src/config.rs" || ! grep -q 'scheme' "${ROOT}/src/config.rs"; then
+if ! grep -q 'struct AccessInput' "${ROOT}/src/config.rs" || ! grep -q 'allow: Vec<String>' "${ROOT}/src/config.rs"; then
     cat >&2 <<'EOF'
-Runseal source is missing credential `scheme` / `tls_ca` support required by this QA harness.
+Runseal source is missing `access` policy support required by this QA harness.
 Update src/config.rs, src/profile.rs, and src/secrets.rs before running scripts/run-local-qa.sh.
 EOF
     exit 2

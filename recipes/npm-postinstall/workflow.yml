@@ -1,0 +1,41 @@
+name: npm install with Runseal
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Fetch npm dependencies
+        uses: always-further/runseal@main
+        with:
+          run: npm ci --ignore-scripts
+          policy: |
+            fs:
+              read: ["."]
+              write: ["./node_modules"]
+            network:
+              mode: filtered
+              allow:
+                - registry.npmjs.org
+
+      - name: Run required package scripts without network
+        uses: always-further/runseal@main
+        with:
+          run: npm rebuild
+          policy: |
+            fs:
+              read: [".", "./node_modules"]
+              write: ["./node_modules"]
+            network:
+              mode: blocked
