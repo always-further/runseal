@@ -24,7 +24,7 @@ jobs:
               read: ["."]
               write: []
             network:
-              default: blocked
+              mode: blocked
 
       - name: Secret is not exposed to command
         uses: always-further/runseal@main
@@ -41,12 +41,10 @@ jobs:
               read: ["."]
               write: []
             network:
-              default: blocked
-            credentials:
-              RUNSEAL_QA_API_TOKEN:
-                host: example.com
-                inject:
-                  mode: header
-                endpoints:
-                  - method: GET
-                    path: "/**"
+              mode: filtered
+            access:
+              api:
+                secret: RUNSEAL_QA_API_TOKEN
+                url: https://example.com
+                allow:
+                  - GET /**

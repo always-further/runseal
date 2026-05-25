@@ -23,13 +23,13 @@ jobs:
           run: |
             set -euo pipefail
             test -z "${RUNSEAL_GITHUB_PAT:-}"
-            test -n "${RUNSEAL_CRED_cred_0:-}"
+            test -n "${RUNSEAL_ACCESS_GITHUB_TOKEN:-}"
             printf "raw github PAT stripped: yes\n"
-            printf "phantom credential present: yes len=%s prefix=%s\n" "${#RUNSEAL_CRED_cred_0}" "${RUNSEAL_CRED_cred_0:0:8}"
+            printf "phantom credential present: yes len=%s prefix=%s\n" "${#RUNSEAL_ACCESS_GITHUB_TOKEN}" "${RUNSEAL_ACCESS_GITHUB_TOKEN:0:8}"
             curl -fsS \
-              -H "Authorization: Bearer ${RUNSEAL_CRED_cred_0}" \
+              -H "Authorization: Bearer ${RUNSEAL_ACCESS_GITHUB_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
-              "${CRED_0_BASE_URL}/user"
+              "${GITHUB_BASE_URL}/user"
             printf "github PAT injected ok\n"
           runseal-version: source
           verify-attestations: false
@@ -38,12 +38,10 @@ jobs:
               read: ["."]
               write: []
             network:
-              default: blocked
-            credentials:
-              RUNSEAL_GITHUB_PAT:
-                host: api.github.com
-                inject:
-                  mode: header
-                endpoints:
-                  - method: GET
-                    path: "/user"
+              mode: filtered
+            access:
+              github:
+                secret: RUNSEAL_GITHUB_PAT
+                url: https://api.github.com
+                allow:
+                  - GET /user

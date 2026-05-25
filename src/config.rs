@@ -8,7 +8,7 @@ pub struct RunConfig {
     pub fs_read: Vec<String>,
     pub fs_write: Vec<String>,
     pub network: NetworkPolicy,
-    pub credentials: Vec<CredentialConfig>,
+    pub access: Vec<AccessConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,8 +18,9 @@ pub enum NetworkPolicy {
 }
 
 #[derive(Debug, Clone)]
-pub struct CredentialConfig {
-    pub secret_env: String,
+pub struct AccessConfig {
+    pub name: String,
+    pub secret: String,
     pub upstream: String,
     pub tls_ca: Option<String>,
     pub inject_mode: String,
@@ -37,7 +38,7 @@ pub struct EndpointRule {
 struct PolicyInput {
     fs: Option<FsInput>,
     network: Option<NetworkInput>,
-    credentials: Option<std::collections::BTreeMap<String, CredentialInput>>,
+    access: Option<std::collections::BTreeMap<String, AccessInput>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,23 +54,22 @@ struct FsInput {
 #[serde(deny_unknown_fields)]
 struct NetworkInput {
     #[serde(default = "default_blocked")]
-    default: String,
+    mode: String,
     #[serde(default)]
     allow: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CredentialInput {
-    host: String,
-    #[serde(default = "default_https_scheme")]
-    scheme: String,
+struct AccessInput {
+    secret: String,
+    url: String,
     #[serde(default)]
     tls_ca: Option<String>,
     #[serde(default)]
     inject: InjectInput,
     #[serde(default)]
-    endpoints: Vec<EndpointRule>,
+    allow: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,10 +93,6 @@ fn default_blocked() -> String {
 fn default_header_mode() -> String {
     "header".to_string()
 }
-fn default_https_scheme() -> String {
-    "https".to_string()
-}
-
 impl RunConfig {
     pub fn from_action_env() -> Result<Self> {
         let command = env_value("RUNSEAL_RUN")
@@ -124,47 +120,42 @@ impl RunConfig {
                 .or_else(|| env_value("NONO_ACTION_NETWORK"))
                 .as_deref(),
         );
-        let credentials = parse_legacy_credentials(
-            env_value("RUNSEAL_CREDENTIALS")
-                .or_else(|| env_value("NONO_ACTION_CREDENTIALS"))
-                .as_deref(),
-            env_value("RUNSEAL_ENDPOINT_RULES")
-                .or_else(|| env_value("NONO_ACTION_ENDPOINT_RULES"))
-                .as_deref(),
-        )?;
-
         Ok(Self {
             command,
             fs_read,
             fs_write,
             network,
-            credentials,
+            access: Vec::new(),
         })
     }
 
     fn from_policy(command: String, policy: PolicyInput) -> Result<Self> {
         let (fs_read, fs_write) = policy.fs.map(|fs| (fs.read, fs.write)).unwrap_or_default();
         let network = match policy.network {
-            Some(network) if network.default == "blocked" && network.allow.is_empty() => {
+            Some(network)
+                if matches!(network.mode.as_str(), "blocked" | "filtered")
+                    && network.allow.is_empty() =>
+            {
                 NetworkPolicy::Blocked
             }
-            Some(network) if network.default == "blocked" => {
+            Some(network) if matches!(network.mode.as_str(), "blocked" | "filtered") => {
                 NetworkPolicy::AllowDomains(network.allow)
             }
             Some(network) => bail!(
-                "unsupported network.default '{}'; only 'blocked' is supported",
-                network.default
+                "unsupported network.mode '{}'; expected 'blocked' or 'filtered'",
+                network.mode
             ),
             None => NetworkPolicy::Blocked,
         };
-        let mut credentials = Vec::new();
-        for (secret_env, cred) in policy.credentials.unwrap_or_default() {
-            credentials.push(CredentialConfig {
-                secret_env,
-                upstream: credential_upstream(&cred.scheme, &cred.host)?,
-                tls_ca: cred.tls_ca,
-                inject_mode: cred.inject.mode,
-                endpoint_rules: cred.endpoints,
+        let mut access = Vec::new();
+        for (name, grant) in policy.access.unwrap_or_default() {
+            access.push(AccessConfig {
+                name,
+                secret: grant.secret,
+                upstream: validate_url(&grant.url)?,
+                tls_ca: grant.tls_ca,
+                inject_mode: grant.inject.mode,
+                endpoint_rules: parse_allow_rules(&grant.allow)?,
             });
         }
         Ok(Self {
@@ -172,7 +163,7 @@ impl RunConfig {
             fs_read,
             fs_write,
             network,
-            credentials,
+            access,
         })
     }
 }
@@ -200,72 +191,28 @@ fn parse_network(value: Option<&str>) -> NetworkPolicy {
     }
 }
 
-fn parse_legacy_credentials(
-    credentials: Option<&str>,
-    endpoint_rules: Option<&str>,
-) -> Result<Vec<CredentialConfig>> {
-    let mut result = Vec::new();
-    for line in credentials
-        .unwrap_or_default()
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-    {
-        let mut parts = line.splitn(3, ':');
-        let secret_env = parts.next().unwrap_or_default().trim();
-        let host = parts.next().unwrap_or_default().trim();
-        let inject_mode = parts.next().unwrap_or("header").trim();
-        if secret_env.is_empty() || host.is_empty() {
-            bail!("credential mapping '{line}' must be SECRET_NAME:host[:inject_mode]");
-        }
-        let rules = parse_rules_for_secret(secret_env, endpoint_rules)?;
-        result.push(CredentialConfig {
-            secret_env: secret_env.to_string(),
-            upstream: credential_upstream("https", host)?,
-            tls_ca: None,
-            inject_mode: inject_mode.to_string(),
-            endpoint_rules: rules,
-        });
-    }
-    Ok(result)
-}
-
-fn credential_upstream(scheme: &str, host: &str) -> Result<String> {
-    if host.starts_with("http://") || host.starts_with("https://") {
-        return Ok(host.to_string());
-    }
-
-    match scheme {
-        "http" | "https" => Ok(format!("{scheme}://{host}")),
-        _ => bail!("unsupported credential scheme '{scheme}'; expected 'https' or 'http'"),
+fn validate_url(url: &str) -> Result<String> {
+    if url.starts_with("http://") || url.starts_with("https://") {
+        Ok(url.trim_end_matches('/').to_string())
+    } else {
+        bail!("access url '{url}' must start with 'https://' or 'http://'")
     }
 }
 
-fn parse_rules_for_secret(
-    secret_env: &str,
-    endpoint_rules: Option<&str>,
-) -> Result<Vec<EndpointRule>> {
-    let mut rules = Vec::new();
-    for line in endpoint_rules
-        .unwrap_or_default()
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-    {
-        let mut parts = line.splitn(3, ':');
-        let rule_secret = parts.next().unwrap_or_default().trim();
-        let method = parts.next().unwrap_or_default().trim();
-        let path = parts.next().unwrap_or_default().trim();
-        if rule_secret != secret_env {
-            continue;
-        }
-        if method.is_empty() || path.is_empty() {
-            bail!("endpoint rule '{line}' must be SECRET_NAME:METHOD:path_glob");
-        }
-        rules.push(EndpointRule {
-            method: method.to_string(),
-            path: path.to_string(),
-        });
-    }
-    Ok(rules)
+fn parse_allow_rules(allow: &[String]) -> Result<Vec<EndpointRule>> {
+    allow
+        .iter()
+        .map(|rule| {
+            let mut parts = rule.splitn(2, char::is_whitespace);
+            let method = parts.next().unwrap_or_default().trim();
+            let path = parts.next().unwrap_or_default().trim();
+            if method.is_empty() || path.is_empty() {
+                bail!("access allow rule '{rule}' must be formatted as 'METHOD /path'");
+            }
+            Ok(EndpointRule {
+                method: method.to_string(),
+                path: path.to_string(),
+            })
+        })
+        .collect()
 }

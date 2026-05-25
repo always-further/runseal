@@ -51,15 +51,13 @@ jobs:
               read: ["."]
               write: []
             network:
-              default: blocked
-            credentials:
-              NPM_TOKEN:
-                host: registry.npmjs.org
-                inject:
-                  mode: header
-                endpoints:
-                  - method: PUT
-                    path: "/**"
+              mode: filtered
+            access:
+              npm:
+                secret: NPM_TOKEN
+                url: https://registry.npmjs.org
+                allow:
+                  - PUT /**
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 ```
@@ -82,20 +80,17 @@ fs:
     - "./dist"
 
 network:
-  default: blocked
+  mode: filtered
   allow:
     - api.github.com
 
-credentials:
-  DEPLOY_TOKEN:
-    host: api.example.com
-    inject:
-      mode: header
-    endpoints:
-      - method: POST
-        path: "/v1/deployments"
-      - method: GET
-        path: "/v1/deployments/*"
+access:
+  deploy:
+    secret: DEPLOY_TOKEN
+    url: https://api.example.com
+    allow:
+      - POST /v1/deployments
+      - GET /v1/deployments/*
 ```
 
 ### Filesystem Access
@@ -114,34 +109,33 @@ fs:
 
 ### Network Access
 
-Runseal expects `network.default: blocked`.
+Runseal expects `network.mode: blocked` or `network.mode: filtered`.
 
 Add `network.allow` only for unauthenticated hosts the command must reach. Hosts
-used by credentials are added to the generated `nono` profile automatically.
+used by access grants are added to the generated `nono` profile automatically.
 
 ```yaml
 network:
-  default: blocked
+  mode: filtered
   allow:
     - api.github.com
 ```
 
-### Credential Injection
+### Access Grants
 
-Each key under `credentials` is the name of an environment variable containing a
-GitHub secret. Runseal reads the value, masks it in logs, writes it to a private
-file, removes it from the child environment, and configures `nono` to inject it
-through the local proxy.
+Each key under `access` is a named grant. `secret` is the environment variable
+containing the real secret, `url` is the service base URL, and `allow` lists the
+HTTP routes where the secret may be injected. Runseal masks the secret in logs,
+writes it to a private file, removes it from the child environment, and
+configures `nono` to inject it through the local proxy.
 
 ```yaml
-credentials:
-  FLY_API_TOKEN:
-    host: api.machines.dev
-    inject:
-      mode: header
-    endpoints:
-      - method: POST
-        path: "/v1/apps/*/machines"
+access:
+  fly:
+    secret: FLY_API_TOKEN
+    url: https://api.machines.dev
+    allow:
+      - POST /v1/apps/*/machines
 ```
 
 The sandboxed command receives a phantom credential for SDK compatibility. The
@@ -150,15 +144,13 @@ the host and endpoint policy match.
 
 ### HTTPS Endpoint Filtering
 
-`endpoints` restricts credential use by HTTP method and path. When any endpoint
-rules are present for a credential, matching is allow-list based.
+`allow` restricts access use by HTTP method and path. Matching is allow-list
+based.
 
 ```yaml
-endpoints:
-  - method: POST
-    path: "/v1/apps/*/releases"
-  - method: GET
-    path: "/v1/apps/*/status"
+allow:
+  - POST /v1/apps/*/releases
+  - GET /v1/apps/*/status
 ```
 
 Runseal relies on `nono` TLS interception for this. The `nono` proxy creates an
@@ -179,7 +171,7 @@ still allowing L7 policy enforcement.
         read: [".", "./node_modules"]
         write: ["./coverage"]
       network:
-        default: blocked
+        mode: blocked
 ```
 
 ### Build With Package Registry Access
@@ -193,7 +185,7 @@ still allowing L7 policy enforcement.
         read: ["."]
         write: ["./node_modules"]
       network:
-        default: blocked
+        mode: filtered
         allow:
           - registry.npmjs.org
 ```
@@ -209,17 +201,14 @@ still allowing L7 policy enforcement.
         read: ["./dist", "./deploy.yaml"]
         write: []
       network:
-        default: blocked
-      credentials:
-        DEPLOY_TOKEN:
-          host: deploy.example.com
-          inject:
-            mode: header
-          endpoints:
-            - method: POST
-              path: "/v1/releases"
-            - method: GET
-              path: "/v1/releases/*"
+        mode: filtered
+      access:
+        deploy:
+          secret: DEPLOY_TOKEN
+          url: https://deploy.example.com
+          allow:
+            - POST /v1/releases
+            - GET /v1/releases/*
   env:
     DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
 ```
@@ -230,33 +219,12 @@ still allowing L7 policy enforcement.
 | --- | --- | --- | --- |
 | `run` | Yes | none | Command to execute inside the sandbox. |
 | `policy` | No | empty | Runseal policy YAML. Prefer this for new workflows. |
-| `fs-read` | No | empty | Legacy comma-separated read paths when `policy` is not set. |
-| `fs-write` | No | empty | Legacy comma-separated write paths when `policy` is not set. |
-| `network` | No | `blocked` | Legacy network policy: `blocked` or comma-separated domains. |
-| `credentials` | No | empty | Legacy credential mappings: `SECRET_NAME:host:inject_mode`. |
-| `endpoint-rules` | No | empty | Legacy endpoint rules: `SECRET_NAME:METHOD:path_glob`. |
+| `fs-read` | No | empty | Comma-separated read paths when `policy` is not set. |
+| `fs-write` | No | empty | Comma-separated write paths when `policy` is not set. |
+| `network` | No | `blocked` | Network policy when `policy` is not set: `blocked` or comma-separated domains. |
 | `runseal-version` | No | `latest` | Runseal release version to install. Accepts `v0.1.0` or `0.1.0`. |
 | `nono-version` | No | `latest` | nono release version to install. Accepts `v0.1.0` or `0.1.0`. |
 | `verify-attestations` | No | `true` | Verify GitHub artifact attestations for downloaded release assets. |
-
-## Legacy Input Example
-
-Structured policy is recommended, but simple workflows can use the legacy inputs:
-
-```yaml
-- uses: always-further/runseal@v1
-  with:
-    run: ./scripts/deploy.sh
-    fs-read: "./dist, ./deploy.yaml"
-    fs-write: ""
-    network: blocked
-    credentials: |
-      DEPLOY_TOKEN:deploy.example.com:header
-    endpoint-rules: |
-      DEPLOY_TOKEN:POST:/v1/releases
-  env:
-    DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
-```
 
 ## Supply Chain Verification
 

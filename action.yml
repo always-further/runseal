@@ -24,14 +24,6 @@ inputs:
     description: "Network policy when policy is not set: blocked or comma-separated domain allowlist"
     required: false
     default: "blocked"
-  credentials:
-    description: "Legacy credential mappings: SECRET_NAME:host:inject_mode"
-    required: false
-    default: ""
-  endpoint-rules:
-    description: "Legacy endpoint rules: SECRET_NAME:METHOD:path_glob"
-    required: false
-    default: ""
   runseal-version:
     description: "Runseal version to install, without or with leading v"
     required: false
@@ -66,5 +58,3 @@ runs:
         RUNSEAL_FS_READ: ${{ inputs.fs-read }}
         RUNSEAL_FS_WRITE: ${{ inputs.fs-write }}
         RUNSEAL_NETWORK: ${{ inputs.network }}
-        RUNSEAL_CREDENTIALS: ${{ inputs.credentials }}
-        RUNSEAL_ENDPOINT_RULES: ${{ inputs.endpoint-rules }}

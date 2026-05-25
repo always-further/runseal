@@ -16,15 +16,12 @@ pub fn run_nono(config: &RunConfig, sealed: &SealedCredentials, profile_path: &P
     );
     let fs_args = fs_args(config)?;
     println!("  nono fs args:     {}", display_fs_args(&fs_args));
-    println!("  ambient network:  {}", display_network(&config.network));
+    println!("  direct network:   {}", display_network(&config.network));
     println!(
         "  credential proxy: {}",
-        display_credential_proxy(sealed.credentials.len())
+        display_credential_proxy(sealed.access.len())
     );
-    println!(
-        "  credentials:      {} configured",
-        sealed.credentials.len()
-    );
+    println!("  access grants:    {} configured", sealed.access.len());
     println!("  nono profile:     {}", profile_path.display());
     println!("::endgroup::");
 
