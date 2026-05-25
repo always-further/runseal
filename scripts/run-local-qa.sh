@@ -28,6 +28,43 @@ require_cmd() {
     fi
 }
 
+print_landlock_abi() {
+    python3 - <<'PY'
+import ctypes
+import os
+import platform
+
+if platform.system() != 'Linux':
+    print('Landlock ABI: skipped (non-Linux host)')
+    raise SystemExit(0)
+
+SYS_landlock_create_ruleset = 444
+LANDLOCK_CREATE_RULESET_VERSION = 1 << 0
+libc = ctypes.CDLL('libc.so.6', use_errno=True)
+libc.syscall.restype = ctypes.c_long
+
+try:
+    abi = libc.syscall(
+        SYS_landlock_create_ruleset,
+        None,
+        0,
+        LANDLOCK_CREATE_RULESET_VERSION,
+    )
+except Exception as exc:
+    print(f'Landlock ABI: unavailable ({exc})')
+    raise SystemExit(0)
+
+if abi < 0:
+    err = ctypes.get_errno()
+    if err == 38:
+        print('Landlock ABI: unavailable (ENOSYS)')
+    else:
+        print(f'Landlock ABI: unavailable (errno={err} {os.strerror(err)})')
+else:
+    print(f'Landlock ABI version: {abi}')
+PY
+}
+
 start_http_server() {
     mkdir -p "${HTTP_DIR}"
     rm -f "${HTTP_DIR}/last-request.txt"
@@ -169,43 +206,51 @@ require_cmd nono
 require_cmd openssl
 require_cmd python3
 
+if ! grep -q 'tls_ca' "${ROOT}/src/config.rs" || ! grep -q 'scheme' "${ROOT}/src/config.rs"; then
+    cat >&2 <<'EOF'
+Runseal source is missing credential `scheme` / `tls_ca` support required by this QA harness.
+Update src/config.rs, src/profile.rs, and src/secrets.rs before running scripts/run-local-qa.sh.
+EOF
+    exit 2
+fi
+
 log "building runseal"
-(cd "${ROOT}" && cargo build --release >/dev/null)
-export PATH="${ROOT}/target/release:${PATH}"
-hash -r
+(cd "${ROOT}" && cargo clean -p runseal >/dev/null && cargo build --release >/dev/null)
+RUNSEAL_BIN="${ROOT}/target/release/runseal"
 
 log "versions"
 nono --version
-runseal --version
+"${RUNSEAL_BIN}" --version
+print_landlock_abi
 
 setup_lab
 
 log "filesystem and network scenarios"
-if (cd "${LAB}" && RUNSEAL_RUN='printf "hello\n"' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: []\nnetwork:\n  default: blocked\n' runseal run >/tmp/runseal-qa.out 2>&1) && grep -q '^hello$' /tmp/runseal-qa.out; then pass "basic command"; else cat /tmp/runseal-qa.out; fail "basic command"; fi
+if (cd "${LAB}" && RUNSEAL_RUN='printf "hello\n"' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: []\nnetwork:\n  default: blocked\n' "${RUNSEAL_BIN}" run >/tmp/runseal-qa.out 2>&1) && grep -q '^hello$' /tmp/runseal-qa.out; then pass "basic command"; else cat /tmp/runseal-qa.out; fail "basic command"; fi
 
-if (cd "${LAB}" && RUNSEAL_RUN='cat allowed.txt' RUNSEAL_POLICY=$'fs:\n  read: ["./allowed.txt"]\n  write: []\nnetwork:\n  default: blocked\n' runseal run >/tmp/runseal-qa.out 2>&1) && grep -q '^allowed$' /tmp/runseal-qa.out; then pass "single file read allowed"; else cat /tmp/runseal-qa.out; fail "single file read allowed"; fi
+if (cd "${LAB}" && RUNSEAL_RUN="cat '${LAB}/allowed.txt'" RUNSEAL_POLICY=$'fs:\n  read: ["./allowed.txt"]\n  write: []\nnetwork:\n  default: blocked\n' "${RUNSEAL_BIN}" run >/tmp/runseal-qa.out 2>&1) && grep -q '^allowed$' /tmp/runseal-qa.out; then pass "single file read allowed"; else cat /tmp/runseal-qa.out; fail "single file read allowed"; fi
 
-if (cd "${LAB}" && RUNSEAL_RUN='cat blocked.txt' RUNSEAL_POLICY=$'fs:\n  read: ["./allowed.txt"]\n  write: []\nnetwork:\n  default: blocked\n' runseal run >/tmp/runseal-qa.out 2>&1); then cat /tmp/runseal-qa.out; fail "read denied"; else pass "read denied"; fi
+if (cd "${LAB}" && RUNSEAL_RUN='cat blocked.txt' RUNSEAL_POLICY=$'fs:\n  read: ["./allowed.txt"]\n  write: []\nnetwork:\n  default: blocked\n' "${RUNSEAL_BIN}" run >/tmp/runseal-qa.out 2>&1); then cat /tmp/runseal-qa.out; fail "read denied"; else pass "read denied"; fi
 
 rm -f "${LAB}/new-file.txt"
-if (cd "${LAB}" && RUNSEAL_RUN='echo nope > ./new-file.txt' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: []\nnetwork:\n  default: blocked\n' runseal run >/tmp/runseal-qa.out 2>&1); then cat /tmp/runseal-qa.out; fail "write denied"; elif [[ ! -e "${LAB}/new-file.txt" ]]; then pass "write denied"; else fail "write denied"; fi
+if (cd "${LAB}" && RUNSEAL_RUN='echo nope > ./new-file.txt' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: []\nnetwork:\n  default: blocked\n' "${RUNSEAL_BIN}" run >/tmp/runseal-qa.out 2>&1); then cat /tmp/runseal-qa.out; fail "write denied"; elif [[ ! -e "${LAB}/new-file.txt" ]]; then pass "write denied"; else fail "write denied"; fi
 
-if (cd "${LAB}" && RUNSEAL_RUN='echo ok > ./dist/result.txt' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: ["./dist"]\nnetwork:\n  default: blocked\n' runseal run >/tmp/runseal-qa.out 2>&1) && grep -q '^ok$' "${LAB}/dist/result.txt"; then pass "directory write allowed"; else cat /tmp/runseal-qa.out; fail "directory write allowed"; fi
+if (cd "${LAB}" && RUNSEAL_RUN='echo ok > ./dist/result.txt' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: ["./dist"]\nnetwork:\n  default: blocked\n' "${RUNSEAL_BIN}" run >/tmp/runseal-qa.out 2>&1) && grep -q '^ok$' "${LAB}/dist/result.txt"; then pass "directory write allowed"; else cat /tmp/runseal-qa.out; fail "directory write allowed"; fi
 
-if (cd "${LAB}" && RUNSEAL_RUN='curl -fsS https://example.com' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: []\nnetwork:\n  default: blocked\n' runseal run >/tmp/runseal-qa.out 2>&1); then cat /tmp/runseal-qa.out; fail "network blocked"; else pass "network blocked"; fi
+if (cd "${LAB}" && RUNSEAL_RUN='curl -fsS https://example.com' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: []\nnetwork:\n  default: blocked\n' "${RUNSEAL_BIN}" run >/tmp/runseal-qa.out 2>&1); then cat /tmp/runseal-qa.out; fail "network blocked"; else pass "network blocked"; fi
 
-if (cd "${LAB}" && RUNSEAL_RUN='curl -fsS https://example.com >/tmp/runseal-example.html' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: ["/tmp"]\nnetwork:\n  default: blocked\n  allow:\n    - example.com\n' runseal run >/tmp/runseal-qa.out 2>&1) && [[ -s /tmp/runseal-example.html ]]; then pass "network allowlist"; else cat /tmp/runseal-qa.out; fail "network allowlist"; fi
+if (cd "${LAB}" && RUNSEAL_RUN='curl -fsS https://example.com >/tmp/runseal-example.html' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: ["/tmp"]\nnetwork:\n  default: blocked\n  allow:\n    - example.com\n' "${RUNSEAL_BIN}" run >/tmp/runseal-qa.out 2>&1) && [[ -s /tmp/runseal-example.html ]]; then pass "network allowlist"; else cat /tmp/runseal-qa.out; fail "network allowlist"; fi
 
 log "secret environment scenarios"
-if (cd "${LAB}" && API_TOKEN='real-secret-value' RUNSEAL_RUN='printf "API_TOKEN=<%s>\n" "$API_TOKEN"' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: []\nnetwork:\n  default: blocked\ncredentials:\n  API_TOKEN:\n    host: example.com\n    inject:\n      mode: header\n    endpoints:\n      - method: GET\n        path: "/**"\n' runseal run >/tmp/runseal-qa.out 2>&1) && grep -q 'API_TOKEN=<>' /tmp/runseal-qa.out; then pass "secret stripped from env"; else cat /tmp/runseal-qa.out; fail "secret stripped from env"; fi
+if (cd "${LAB}" && API_TOKEN='real-secret-value' RUNSEAL_RUN='printf "API_TOKEN=<%s>\n" "$API_TOKEN"' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: []\nnetwork:\n  default: blocked\ncredentials:\n  API_TOKEN:\n    host: example.com\n    inject:\n      mode: header\n    endpoints:\n      - method: GET\n        path: "/**"\n' "${RUNSEAL_BIN}" run >/tmp/runseal-qa.out 2>&1) && grep -q 'API_TOKEN=<>' /tmp/runseal-qa.out; then pass "secret stripped from env"; else cat /tmp/runseal-qa.out; fail "secret stripped from env"; fi
 
 log "HTTP credential injection and L7 scenarios"
 start_http_server
 
-if (cd "${LAB}" && API_TOKEN='real-secret-value' RUNSEAL_RUN='printf "API_TOKEN=<%s>\n" "$API_TOKEN"; curl -fsS -H "Authorization: Bearer ${RUNSEAL_CRED_cred_0}" "${CRED_0_BASE_URL}/v1/allowed"' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: []\nnetwork:\n  default: blocked\ncredentials:\n  API_TOKEN:\n    host: 127.0.0.1:18080\n    scheme: http\n    inject:\n      mode: header\n    endpoints:\n      - method: GET\n        path: "/v1/allowed"\n' runseal run >/tmp/runseal-qa.out 2>&1) && grep -q 'API_TOKEN=<>' /tmp/runseal-qa.out && grep -q 'Authorization: Bearer real-secret-value' "${HTTP_DIR}/last-request.txt"; then pass "http credential injection"; else cat /tmp/runseal-qa.out; [[ -f "${HTTP_DIR}/last-request.txt" ]] && cat "${HTTP_DIR}/last-request.txt"; fail "http credential injection"; fi
+if (cd "${LAB}" && API_TOKEN='real-secret-value' RUNSEAL_RUN='printf "API_TOKEN=<%s>\n" "$API_TOKEN"; curl -fsS -H "Authorization: Bearer ${RUNSEAL_CRED_cred_0}" "${CRED_0_BASE_URL}/v1/allowed"' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: []\nnetwork:\n  default: blocked\ncredentials:\n  API_TOKEN:\n    host: 127.0.0.1:18080\n    scheme: http\n    inject:\n      mode: header\n    endpoints:\n      - method: GET\n        path: "/v1/allowed"\n' "${RUNSEAL_BIN}" run >/tmp/runseal-qa.out 2>&1) && grep -q 'API_TOKEN=<>' /tmp/runseal-qa.out && grep -q 'Authorization: Bearer real-secret-value' "${HTTP_DIR}/last-request.txt"; then pass "http credential injection"; else cat /tmp/runseal-qa.out; [[ -f "${HTTP_DIR}/last-request.txt" ]] && cat "${HTTP_DIR}/last-request.txt"; fail "http credential injection"; fi
 
 rm -f "${HTTP_DIR}/last-request.txt"
-if (cd "${LAB}" && API_TOKEN='real-secret-value' RUNSEAL_RUN='curl -fsS -H "Authorization: Bearer ${RUNSEAL_CRED_cred_0}" "${CRED_0_BASE_URL}/v1/denied"' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: []\nnetwork:\n  default: blocked\ncredentials:\n  API_TOKEN:\n    host: 127.0.0.1:18080\n    scheme: http\n    inject:\n      mode: header\n    endpoints:\n      - method: GET\n        path: "/v1/allowed"\n' runseal run >/tmp/runseal-qa.out 2>&1); then cat /tmp/runseal-qa.out; fail "http l7 denied path"; elif [[ ! -e "${HTTP_DIR}/last-request.txt" ]]; then pass "http l7 denied path"; else cat "${HTTP_DIR}/last-request.txt"; fail "http l7 denied path"; fi
+if (cd "${LAB}" && API_TOKEN='real-secret-value' RUNSEAL_RUN='curl -fsS -H "Authorization: Bearer ${RUNSEAL_CRED_cred_0}" "${CRED_0_BASE_URL}/v1/denied"' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: []\nnetwork:\n  default: blocked\ncredentials:\n  API_TOKEN:\n    host: 127.0.0.1:18080\n    scheme: http\n    inject:\n      mode: header\n    endpoints:\n      - method: GET\n        path: "/v1/allowed"\n' "${RUNSEAL_BIN}" run >/tmp/runseal-qa.out 2>&1); then cat /tmp/runseal-qa.out; fail "http l7 denied path"; elif [[ ! -e "${HTTP_DIR}/last-request.txt" ]]; then pass "http l7 denied path"; else cat "${HTTP_DIR}/last-request.txt"; fail "http l7 denied path"; fi
 
 log "TLS credential injection scenario"
 if ! grep -q 'api.runseal.test' /etc/hosts; then
@@ -215,7 +260,7 @@ prepare_tls_certs
 start_tls_server
 
 rm -f "${TLS_DIR}/last-request.txt"
-if (cd "${LAB}" && API_TOKEN='real-secret-value' RUNSEAL_RUN='printf "API_TOKEN=<%s>\n" "$API_TOKEN"; rc=0; curl -fsS https://api.runseal.test:18443/v1/allowed || rc=$?; if [ "$rc" -ne 0 ] && [ "$rc" -ne 56 ]; then exit "$rc"; fi' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: []\nnetwork:\n  default: blocked\ncredentials:\n  API_TOKEN:\n    host: api.runseal.test:18443\n    tls_ca: /tmp/runseal-tls/ca.pem\n    inject:\n      mode: header\n    endpoints:\n      - method: GET\n        path: "/v1/allowed"\n' runseal run >/tmp/runseal-qa.out 2>&1) && grep -q 'API_TOKEN=<>' /tmp/runseal-qa.out && grep -q 'Authorization: Bearer real-secret-value' "${TLS_DIR}/last-request.txt"; then pass "tls credential injection"; else cat /tmp/runseal-qa.out; [[ -f "${TLS_DIR}/last-request.txt" ]] && cat "${TLS_DIR}/last-request.txt"; fail "tls credential injection"; fi
+if (cd "${LAB}" && API_TOKEN='real-secret-value' RUNSEAL_RUN='printf "API_TOKEN=<%s>\n" "$API_TOKEN"; rc=0; curl -fsS https://api.runseal.test:18443/v1/allowed || rc=$?; if [ "$rc" -ne 0 ] && [ "$rc" -ne 56 ]; then exit "$rc"; fi' RUNSEAL_POLICY=$'fs:\n  read: ["."]\n  write: []\nnetwork:\n  default: blocked\ncredentials:\n  API_TOKEN:\n    host: api.runseal.test:18443\n    tls_ca: /tmp/runseal-tls/ca.pem\n    inject:\n      mode: header\n    endpoints:\n      - method: GET\n        path: "/v1/allowed"\n' "${RUNSEAL_BIN}" run >/tmp/runseal-qa.out 2>&1) && grep -q 'API_TOKEN=<>' /tmp/runseal-qa.out && grep -q 'Authorization: Bearer real-secret-value' "${TLS_DIR}/last-request.txt"; then pass "tls credential injection"; else cat /tmp/runseal-qa.out; [[ -f "${TLS_DIR}/last-request.txt" ]] && cat "${TLS_DIR}/last-request.txt"; fail "tls credential injection"; fi
 
 log "summary"
 printf 'passed=%s failed=%s\n' "${PASS}" "${FAIL}"
