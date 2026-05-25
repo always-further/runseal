@@ -1,8 +1,8 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./assets/runseal-light.png">
-  <img alt="Runseal logo" src="./assets/runseal-dark.png" width="800px" style="max-width: 100%;">
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/runseal-dark.png">
+  <img alt="Runseal logo" src="./assets/runseal-light.png" width="800px" style="max-width: 100%;">
 </picture>
 
 <p>
