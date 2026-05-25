@@ -1,0 +1,32 @@
+name: QA
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  local-qa:
+    name: Local Runseal QA
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout runseal
+        uses: actions/checkout@v4
+
+      - name: Checkout nono
+        uses: actions/checkout@v4
+        with:
+          repository: always-further/nono
+          path: nono
+
+      - name: Build nono
+        working-directory: nono
+        run: cargo build --release --locked
+
+      - name: Put nono on PATH
+        run: echo "$PWD/nono/target/release" >> "$GITHUB_PATH"
+
+      - name: Run local QA harness
+        run: scripts/run-local-qa.sh

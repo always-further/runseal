@@ -1,5 +1,4 @@
 <div align="center">
-<h1>runseal</h1>
 <img src="assets/logo.png" alt="nono logo" width="600"/>
 
 <p>
