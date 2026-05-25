@@ -21,6 +21,13 @@ jobs:
           repository: always-further/nono
           path: nono
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libdbus-1-dev \
+            pkg-config
+
       - name: Build nono
         working-directory: nono
         run: cargo build --release --locked
@@ -30,3 +37,5 @@ jobs:
 
       - name: Run local QA harness
         run: scripts/run-local-qa.sh
+        env:
+          RUNSEAL_QA_API_TOKEN: ${{ secrets.RUNSEAL_QA_API_TOKEN }}
