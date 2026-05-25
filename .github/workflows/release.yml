@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    name: Build release binaries
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          asset="runseal-v${version}-${{ matrix.target }}.tar.gz"
+          mkdir -p dist/pkg
+          cp "target/${{ matrix.target }}/release/runseal" dist/pkg/runseal
+          chmod 0755 dist/pkg/runseal
+          tar -C dist/pkg -czf "dist/${asset}" runseal
+          (cd dist && sha256sum "${asset}" > SHA256SUMS)
+          echo "asset=dist/${asset}" >> "${GITHUB_OUTPUT}"
+
+      - name: Attest release asset
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.package.outputs.asset }}
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
+            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes "Runseal ${GITHUB_REF_NAME}"
+          gh release upload "${GITHUB_REF_NAME}" dist/*.tar.gz dist/SHA256SUMS --clobber

@@ -1,0 +1,29 @@
+name: Publish with Runseal
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: always-further/runseal@v1
+        with:
+          run: npm publish
+          policy: |
+            fs:
+              read: ["."]
+              write: []
+            network:
+              default: blocked
+            credentials:
+              NPM_TOKEN:
+                host: registry.npmjs.org
+                inject:
+                  mode: header
+                endpoints:
+                  - method: PUT
+                    path: "/**"
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

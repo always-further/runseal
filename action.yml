@@ -1,0 +1,69 @@
+name: "Runseal"
+description: "Run commands with sealed credentials, L7 filtering, and nono sandbox enforcement"
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  run:
+    description: "Command to execute inside the sandbox"
+    required: true
+  policy:
+    description: "Runseal policy YAML"
+    required: false
+    default: ""
+  fs-read:
+    description: "Comma-separated paths to allow read access when policy is not set"
+    required: false
+    default: ""
+  fs-write:
+    description: "Comma-separated paths to allow write access when policy is not set"
+    required: false
+    default: ""
+  network:
+    description: "Network policy when policy is not set: blocked or comma-separated domain allowlist"
+    required: false
+    default: "blocked"
+  credentials:
+    description: "Legacy credential mappings: SECRET_NAME:host:inject_mode"
+    required: false
+    default: ""
+  endpoint-rules:
+    description: "Legacy endpoint rules: SECRET_NAME:METHOD:path_glob"
+    required: false
+    default: ""
+  runseal-version:
+    description: "Runseal version to install, without or with leading v"
+    required: false
+    default: "latest"
+  nono-version:
+    description: "nono version to install, without or with leading v"
+    required: false
+    default: "latest"
+  verify-attestations:
+    description: "Verify GitHub artifact attestations for downloaded runseal and nono release assets"
+    required: false
+    default: "true"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Runseal
+      shell: bash
+      run: ${{ github.action_path }}/setup.sh
+      env:
+        RUNSEAL_VERSION: ${{ inputs.runseal-version }}
+        NONO_VERSION: ${{ inputs.nono-version }}
+        RUNSEAL_VERIFY_ATTESTATIONS: ${{ inputs.verify-attestations }}
+        GH_TOKEN: ${{ github.token }}
+    - name: Run sealed command
+      shell: bash
+      run: runseal run
+      env:
+        RUNSEAL_RUN: ${{ inputs.run }}
+        RUNSEAL_POLICY: ${{ inputs.policy }}
+        RUNSEAL_FS_READ: ${{ inputs.fs-read }}
+        RUNSEAL_FS_WRITE: ${{ inputs.fs-write }}
+        RUNSEAL_NETWORK: ${{ inputs.network }}
+        RUNSEAL_CREDENTIALS: ${{ inputs.credentials }}
+        RUNSEAL_ENDPOINT_RULES: ${{ inputs.endpoint-rules }}
