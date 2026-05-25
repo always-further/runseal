@@ -23,6 +23,9 @@ jobs:
           run: |
             set -euo pipefail
             test -z "${RUNSEAL_GITHUB_PAT:-}"
+            test -n "${RUNSEAL_CRED_cred_0:-}"
+            printf "raw github PAT stripped: yes\n"
+            printf "phantom credential present: yes len=%s prefix=%s\n" "${#RUNSEAL_CRED_cred_0}" "${RUNSEAL_CRED_cred_0:0:8}"
             curl -fsS \
               -H "Authorization: Bearer ${RUNSEAL_CRED_cred_0}" \
               -H "Accept: application/vnd.github+json" \

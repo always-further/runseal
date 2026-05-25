@@ -16,7 +16,11 @@ pub fn run_nono(config: &RunConfig, sealed: &SealedCredentials, profile_path: &P
     );
     let fs_args = fs_args(config)?;
     println!("  nono fs args:     {}", display_fs_args(&fs_args));
-    println!("  network:          {}", display_network(&config.network));
+    println!("  ambient network:  {}", display_network(&config.network));
+    println!(
+        "  credential proxy: {}",
+        display_credential_proxy(sealed.credentials.len())
+    );
     println!(
         "  credentials:      {} configured",
         sealed.credentials.len()
@@ -116,6 +120,14 @@ fn display_network(network: &NetworkPolicy) -> String {
     match network {
         NetworkPolicy::Blocked => "blocked".to_string(),
         NetworkPolicy::AllowDomains(domains) => domains.join(", "),
+    }
+}
+
+fn display_credential_proxy(credential_count: usize) -> &'static str {
+    if credential_count == 0 {
+        "disabled"
+    } else {
+        "enabled for sealed credential routes"
     }
 }
 
