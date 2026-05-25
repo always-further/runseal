@@ -6,6 +6,7 @@ NONO_VERSION="${NONO_VERSION:-latest}"
 RUNSEAL_REPO="${RUNSEAL_REPO:-always-further/runseal}"
 NONO_REPO="${NONO_REPO:-always-further/nono}"
 RUNSEAL_VERIFY_ATTESTATIONS="${RUNSEAL_VERIFY_ATTESTATIONS:-true}"
+RUNSEAL_ACTION_PATH="${RUNSEAL_ACTION_PATH:-${GITHUB_ACTION_PATH:-}}"
 INSTALL_ROOT="${RUNNER_TOOL_CACHE:-/tmp}/runseal"
 
 detect_target() {
@@ -89,10 +90,10 @@ download_checksums() {
     local output="$3"
     local base_url="https://github.com/${repo}/releases/download/v${version}"
 
-    if curl -fsSL "${base_url}/SHA256SUMS" -o "${output}"; then
+    if curl -fsSL "${base_url}/SHA256SUMS" -o "${output}" 2>/dev/null; then
         return
     fi
-    if curl -fsSL "${base_url}/SHA256SUMS.txt" -o "${output}"; then
+    if curl -fsSL "${base_url}/SHA256SUMS.txt" -o "${output}" 2>/dev/null; then
         return
     fi
 
@@ -117,6 +118,7 @@ install_release_binary() {
     if [[ -x "${install_dir}/${name}" ]]; then
         echo "${name} v${version} already installed at ${install_dir}/${name}"
         echo "${install_dir}" >> "${GITHUB_PATH}"
+        export PATH="${install_dir}:${PATH}"
         return
     fi
 
@@ -133,12 +135,39 @@ install_release_binary() {
     )
     chmod +x "${install_dir}/${name}"
     echo "${install_dir}" >> "${GITHUB_PATH}"
+    export PATH="${install_dir}:${PATH}"
+}
+
+install_runseal_from_source() {
+    local target="$1"
+    local install_dir="${INSTALL_ROOT}/runseal/source/${target}"
+
+    if [[ -z "${RUNSEAL_ACTION_PATH}" ]]; then
+        echo "::error::RUNSEAL_ACTION_PATH is required when runseal-version is 'source'"
+        exit 1
+    fi
+
+    mkdir -p "${install_dir}"
+    echo "Building runseal from action source at ${RUNSEAL_ACTION_PATH}"
+    (
+        cd "${RUNSEAL_ACTION_PATH}"
+        cargo build --release --locked
+        cp target/release/runseal "${install_dir}/runseal"
+    )
+    chmod +x "${install_dir}/runseal"
+    echo "${install_dir}" >> "${GITHUB_PATH}"
+    export PATH="${install_dir}:${PATH}"
 }
 
 TARGET="$(detect_target)"
 
 install_release_binary "nono" "${NONO_REPO}" "${NONO_VERSION}" "${TARGET}"
-install_release_binary "runseal" "${RUNSEAL_REPO}" "${RUNSEAL_VERSION}" "${TARGET}"
 
-"${INSTALL_ROOT}/nono/$(resolve_version "${NONO_REPO}" "${NONO_VERSION}")/${TARGET}/nono" --version
-"${INSTALL_ROOT}/runseal/$(resolve_version "${RUNSEAL_REPO}" "${RUNSEAL_VERSION}")/${TARGET}/runseal" --version
+if [[ "${RUNSEAL_VERSION}" == "source" ]]; then
+    install_runseal_from_source "${TARGET}"
+else
+    install_release_binary "runseal" "${RUNSEAL_REPO}" "${RUNSEAL_VERSION}" "${TARGET}"
+fi
+
+nono --version
+runseal --version

@@ -17,6 +17,7 @@ jobs:
         uses: always-further/runseal@main
         with:
           run: cargo --version
+          runseal-version: source
           verify-attestations: false
           policy: |
             fs:
@@ -32,6 +33,7 @@ jobs:
         with:
           run: |
             test -z "$RUNSEAL_QA_API_TOKEN"
+          runseal-version: source
           verify-attestations: false
           policy: |
             fs:

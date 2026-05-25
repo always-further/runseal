@@ -55,6 +55,7 @@ runs:
         RUNSEAL_VERSION: ${{ inputs.runseal-version }}
         NONO_VERSION: ${{ inputs.nono-version }}
         RUNSEAL_VERIFY_ATTESTATIONS: ${{ inputs.verify-attestations }}
+        RUNSEAL_ACTION_PATH: ${{ github.action_path }}
         GH_TOKEN: ${{ github.token }}
     - name: Run sealed command
       shell: bash
