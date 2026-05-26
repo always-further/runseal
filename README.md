@@ -286,6 +286,14 @@ Release assets are expected to use this naming scheme:
 ## Development
 
 ```bash
-cargo fmt
-cargo test
+make ci
+```
+
+`make ci` runs `make lint` and `make test` — the same Rust checks as the [CI workflow](.github/workflows/ci.yml).
+
+```bash
+make lint       # clippy + fmt check
+make test       # unit tests only
+make fmt        # format code
+make audit      # cargo audit (run make audit-install first)
 ```
