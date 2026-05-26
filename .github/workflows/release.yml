@@ -6,14 +6,17 @@ on:
       - "v*"
 
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 jobs:
   build:
     name: Build release binaries
+    if: github.repository == 'always-further/runseal'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -21,7 +24,14 @@ jobs:
           - x86_64-unknown-linux-gnu
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+        with:
+          toolchain: stable
 
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}
@@ -41,7 +51,7 @@ jobs:
           echo "asset=dist/${asset}" >> "${GITHUB_OUTPUT}"
 
       - name: Attest release asset
-        uses: actions/attest@v4
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
           subject-path: ${{ steps.package.outputs.asset }}
 
