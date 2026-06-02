@@ -16,14 +16,14 @@ jobs:
               read: ["."]
               write: []
             network:
-              default: blocked
-            credentials:
-              NPM_TOKEN:
-                host: registry.npmjs.org
+              mode: filtered
+            access:
+              npm:
+                secret: NPM_TOKEN
+                url: https://registry.npmjs.org
                 inject:
                   mode: header
-                endpoints:
-                  - method: PUT
-                    path: "/**"
+                allow:
+                  - PUT /**
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
