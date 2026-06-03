@@ -73,7 +73,7 @@ pub fn build_profile(config: &RunConfig, sealed: &SealedCredentials) -> Result<N
                 inject_mode: credential.inject_mode.clone(),
                 inject_header: "Authorization",
                 credential_format: "Bearer {}",
-                env_var: format!("RUNSEAL_ACCESS_{}_TOKEN", env_name(&credential.name)),
+                env_var: credential.secret_env.clone(),
                 tls_ca: credential.tls_ca.clone(),
                 endpoint_rules: credential.endpoint_rules.clone(),
             },
@@ -98,18 +98,6 @@ pub fn build_profile(config: &RunConfig, sealed: &SealedCredentials) -> Result<N
     })
 }
 
-fn env_name(name: &str) -> String {
-    name.chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() {
-                ch.to_ascii_uppercase()
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
 pub fn write_profile(path: &Path, profile: &NonoProfile) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(profile)?;
     fs::write(path, bytes)?;
@@ -120,7 +108,7 @@ pub fn write_profile(path: &Path, profile: &NonoProfile) -> Result<()> {
 mod tests {
     use super::*;
     use crate::config::{NetworkPolicy, RunConfig};
-    use crate::secrets::SealedCredentials;
+    use crate::secrets::{SealedCredential, SealedCredentials};
     use std::collections::BTreeMap;
 
     #[test]
@@ -144,5 +132,37 @@ mod tests {
 
         assert!(json.contains("system_write_linux"));
         assert!(json.contains("system_write_macos"));
+    }
+
+    #[test]
+    fn generated_profile_exposes_phantom_on_original_secret_env_var() {
+        let config = RunConfig {
+            command: "true".to_string(),
+            fs_read: vec![".".to_string()],
+            fs_write: Vec::new(),
+            network: NetworkPolicy::Blocked,
+            access: Vec::new(),
+            audit: crate::config::AuditConfig::Disabled,
+        };
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sealed = SealedCredentials {
+            access: vec![SealedCredential {
+                name: "cratesio".to_string(),
+                secret_env: "CARGO_REGISTRY_TOKEN".to_string(),
+                upstream: "https://crates.io".to_string(),
+                tls_ca: None,
+                inject_mode: "header".to_string(),
+                credential_file: dir.path().join("cratesio"),
+                endpoint_rules: Vec::new(),
+            }],
+            dir,
+            sanitized_env: BTreeMap::new(),
+        };
+
+        let profile = build_profile(&config, &sealed).expect("profile");
+        let json = serde_json::to_string(&profile).expect("json");
+
+        assert!(json.contains(r#""env_var":"CARGO_REGISTRY_TOKEN""#));
+        assert!(!json.contains("RUNSEAL_ACCESS_CRATESIO_TOKEN"));
     }
 }

@@ -16,6 +16,7 @@ pub struct SealedCredentials {
 #[derive(Debug)]
 pub struct SealedCredential {
     pub name: String,
+    pub secret_env: String,
     pub upstream: String,
     pub tls_ca: Option<String>,
     pub inject_mode: String,
@@ -52,6 +53,7 @@ pub fn seal_credentials(config: &RunConfig) -> Result<SealedCredentials> {
 
         sealed.push(SealedCredential {
             name,
+            secret_env: grant.secret.clone(),
             upstream: grant.upstream.clone(),
             tls_ca: grant.tls_ca.clone(),
             inject_mode: grant.inject_mode.clone(),
