@@ -1,20 +1,26 @@
 use crate::config::{NetworkPolicy, RunConfig};
 use crate::secrets::SealedCredentials;
 use anyhow::{bail, Context, Result};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub fn run_nono(config: &RunConfig, sealed: &SealedCredentials, profile_path: &Path) -> Result<()> {
+    let trusted_system_reads = trusted_system_read_paths();
     println!("::group::runseal sandbox configuration");
     println!(
         "  filesystem read:  {}",
         display_list(&config.fs_read, "<workspace>")
     );
     println!(
+        "  system read:      {}",
+        display_list(&trusted_system_reads, "<nono defaults>")
+    );
+    println!(
         "  filesystem write: {}",
         display_list(&config.fs_write, "<none>")
     );
-    let fs_args = fs_args(config)?;
+    let fs_args = fs_args(config, &trusted_system_reads)?;
     println!("  nono fs args:     {}", display_fs_args(&fs_args));
     println!("  direct network:   {}", display_network(&config.network));
     println!(
@@ -47,21 +53,58 @@ pub fn run_nono(config: &RunConfig, sealed: &SealedCredentials, profile_path: &P
     Ok(())
 }
 
-fn fs_args(config: &RunConfig) -> Result<Vec<(&'static str, String)>> {
+fn fs_args(
+    config: &RunConfig,
+    trusted_system_reads: &[String],
+) -> Result<Vec<(&'static str, String)>> {
     let mut args = Vec::new();
+    let mut seen = BTreeSet::new();
     for path in &config.fs_read {
-        args.push((fs_flag(path, FsAccess::Read)?, path.clone()));
+        push_fs_arg(&mut args, &mut seen, path, FsAccess::Read)?;
+    }
+    for path in trusted_system_reads {
+        push_fs_arg(&mut args, &mut seen, path, FsAccess::Read)?;
     }
     for path in &config.fs_write {
-        args.push((fs_flag(path, FsAccess::Write)?, path.clone()));
+        push_fs_arg(&mut args, &mut seen, path, FsAccess::Write)?;
     }
     Ok(args)
 }
 
-#[derive(Debug, Clone, Copy)]
+fn push_fs_arg(
+    args: &mut Vec<(&'static str, String)>,
+    seen: &mut BTreeSet<(FsAccess, String)>,
+    path: &str,
+    access: FsAccess,
+) -> Result<()> {
+    let normalized = path.to_string();
+    if !seen.insert((access, normalized.clone())) {
+        return Ok(());
+    }
+    args.push((fs_flag(path, access)?, normalized));
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum FsAccess {
     Read,
     Write,
+}
+
+#[cfg(target_os = "linux")]
+fn trusted_system_read_paths() -> Vec<String> {
+    [
+        "/bin", "/lib", "/lib64", "/sbin", "/usr", "/etc/ssl", "/etc/pki",
+    ]
+    .iter()
+    .filter(|path| Path::new(path).exists())
+    .map(|path| (*path).to_string())
+    .collect()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn trusted_system_read_paths() -> Vec<String> {
+    Vec::new()
 }
 
 fn fs_flag(path: &str, access: FsAccess) -> Result<&'static str> {
@@ -182,6 +225,28 @@ mod tests {
 
         let err = fs_flag(path_str(&missing), FsAccess::Read).unwrap_err();
         assert!(err.to_string().contains("does not exist"));
+    }
+
+    #[test]
+    fn fs_args_adds_trusted_system_reads_without_duplication() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let trusted = dir.path().join("trusted");
+        fs::create_dir(&trusted).expect("trusted dir");
+        let trusted = path_str(&trusted).to_string();
+        let config = RunConfig {
+            command: "true".to_string(),
+            fs_read: vec![trusted.clone()],
+            fs_write: Vec::new(),
+            network: NetworkPolicy::Blocked,
+            access: Vec::new(),
+            audit: crate::config::AuditConfig::Disabled,
+        };
+
+        let args = fs_args(&config, &[trusted.clone()]).expect("fs args");
+        let matching = args.iter().filter(|(_, path)| path == &trusted).count();
+
+        assert_eq!(matching, 1);
+        assert_eq!(args[0], ("--read", trusted));
     }
 
     fn path_str(path: &Path) -> &str {
