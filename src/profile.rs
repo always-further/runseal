@@ -87,7 +87,7 @@ pub fn build_profile(config: &RunConfig, sealed: &SealedCredentials) -> Result<N
             version: env!("CARGO_PKG_VERSION"),
         },
         groups: Groups {
-            exclude: vec!["system_write_linux", "system_write_macos"],
+            exclude: excluded_groups(),
         },
         network: Network {
             block: matches!(config.network, NetworkPolicy::Blocked) && credentials.is_empty(),
@@ -96,6 +96,21 @@ pub fn build_profile(config: &RunConfig, sealed: &SealedCredentials) -> Result<N
             custom_credentials,
         },
     })
+}
+
+#[cfg(target_os = "linux")]
+fn excluded_groups() -> Vec<&'static str> {
+    vec!["system_write_macos"]
+}
+
+#[cfg(target_os = "macos")]
+fn excluded_groups() -> Vec<&'static str> {
+    vec!["system_write_linux"]
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn excluded_groups() -> Vec<&'static str> {
+    vec!["system_write_linux", "system_write_macos"]
 }
 
 pub fn write_profile(path: &Path, profile: &NonoProfile) -> Result<()> {
@@ -112,7 +127,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     #[test]
-    fn generated_profile_excludes_broad_system_write_groups() {
+    fn generated_profile_excludes_only_other_platform_system_write_groups() {
         let config = RunConfig {
             command: "true".to_string(),
             fs_read: vec![".".to_string()],
@@ -130,8 +145,16 @@ mod tests {
         let profile = build_profile(&config, &sealed).expect("profile");
         let json = serde_json::to_string(&profile).expect("json");
 
-        assert!(json.contains("system_write_linux"));
-        assert!(json.contains("system_write_macos"));
+        if cfg!(target_os = "linux") {
+            assert!(!json.contains("system_write_linux"));
+            assert!(json.contains("system_write_macos"));
+        } else if cfg!(target_os = "macos") {
+            assert!(json.contains("system_write_linux"));
+            assert!(!json.contains("system_write_macos"));
+        } else {
+            assert!(json.contains("system_write_linux"));
+            assert!(json.contains("system_write_macos"));
+        }
     }
 
     #[test]
