@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
@@ -102,18 +103,50 @@ fn audit_sessions() -> Result<Vec<String>> {
     let output = Command::new("nono")
         .arg("audit")
         .arg("list")
+        .arg("--json")
         .output()
         .context("failed to run nono audit list")?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return parse_audit_list_json(&stdout);
+    }
+
+    let output = Command::new("nono")
+        .arg("audit")
+        .arg("list")
+        .output()
+        .context("failed to run nono audit list fallback")?;
 
     if !output.status.success() {
         return Ok(Vec::new());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(stdout
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Ok(format!("{stdout}\n{stderr}")
         .lines()
         .filter_map(parse_session_id)
         .map(ToOwned::to_owned)
+        .collect())
+}
+
+#[derive(Deserialize)]
+struct AuditListEntry {
+    session_id: String,
+}
+
+fn parse_audit_list_json(output: &str) -> Result<Vec<String>> {
+    if output.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let entries: Vec<AuditListEntry> =
+        serde_json::from_str(output).context("failed to parse nono audit list --json output")?;
+    Ok(entries
+        .into_iter()
+        .map(|entry| entry.session_id)
+        .filter(|session| !session.trim().is_empty())
         .collect())
 }
 
@@ -140,5 +173,32 @@ mod tests {
             parse_session_id("session 20260511-125727-22312"),
             Some("20260511-125727-22312")
         );
+    }
+
+    #[test]
+    fn parses_session_ids_from_json_list() {
+        let sessions = parse_audit_list_json(
+            r#"[
+              {
+                "session_id": "20260606-184133-1234",
+                "command": "bash -c cargo publish"
+              },
+              {
+                "session_id": "20260606-184200-5678",
+                "command": "true"
+              }
+            ]"#,
+        )
+        .expect("parse json");
+
+        assert_eq!(
+            sessions,
+            vec!["20260606-184133-1234", "20260606-184200-5678"]
+        );
+    }
+
+    #[test]
+    fn empty_json_list_output_has_no_sessions() {
+        assert!(parse_audit_list_json("").unwrap().is_empty());
     }
 }
