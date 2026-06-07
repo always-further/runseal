@@ -5,12 +5,6 @@
   <img alt="Runseal logo" src="./assets/banner-light.png" width="1000px" style="max-width: 100%;">
 </picture>
 
-<p>
-  From the creator of
-  <a href="https://sigstore.dev"><strong>Sigstore</strong></a>
-  <br/>
-  <sub>The standard for secure software attestation, used by PyPI, npm, brew, and Maven Central</sub>
-</p>
   <a href="https://discord.gg/pPcjYzGvbS">
     <img src="https://img.shields.io/badge/Chat-Join%20Discord-7289da?style=for-the-badge&logo=discord&logoColor=white" alt="Join Discord"/>
   </a>
@@ -24,7 +18,7 @@ Runseal was built to solve the problem of software supply chain attacks that are
 
 By using [nono's](https://github.com/always-further/nono) strong kernel-enforced sandboxing, runseal can protect secrets/tokens, sensitive files, and network access from untrusted or malicious code, while still allowing necessary software engineering operations through a flexible policy system.
 
-The project is developed by the engineers behind [sigstore](https://sigstore.dev) and [nono](https://nono.sh).
+From the same folks who brought you [sigstore](https://sigstore.dev) and [nono](https://nono.sh).
 
 ## What Runseal Does
 
