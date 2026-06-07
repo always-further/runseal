@@ -62,9 +62,7 @@ jobs:
 ```
 
 In this example, `npm publish` can read the repository, cannot write to paths
-not listed in `fs.write`, cannot use general network access, and can only use
-`NPM_TOKEN` through the Runseal/nono proxy for allowed HTTPS requests to
-`registry.npmjs.org`.
+not listed in `fs.write`, network access is limited to 'registry.npmjs.org' with no access to other hosts, and 'NPM_TOKEN' is retrieved from GitHub Secrets and a phantom credential is injected in its place. If the workflow is compromised and an attacker tries to exfiltrate the token or publish a malicious package, the attack would be blocked by the sandbox and the real token would remain safe and outside of the 'npm publish 'workflow. 
 
 ## Policy Format
 
